@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+# Scaffold a new project from the agentic-workstation template.
+# Usage: new-project <name> [directory]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")/templates/project"
+PROJECTS_DIR="${HOME}/projects"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: new-project <name> [directory]"
+    echo "  Creates a new project scaffold in ~/projects/<name>"
+    exit 1
+fi
+
+NAME="$1"
+TARGET="${2:-$PROJECTS_DIR/$NAME}"
+
+if [ -d "$TARGET" ]; then
+    echo "Error: $TARGET already exists"
+    exit 1
+fi
+
+echo "Creating project: $NAME"
+echo "Location: $TARGET"
+
+# Create project directory
+mkdir -p "$TARGET"
+
+# Copy template files
+cp -r "$TEMPLATE_DIR"/* "$TARGET/"
+cp -r "$TEMPLATE_DIR"/.claude "$TARGET/"
+
+# Make scripts executable
+chmod +x "$TARGET/scripts/verify_fast.sh" "$TARGET/scripts/verify.sh"
+
+# Replace placeholder in CLAUDE.md
+sed -i.bak "s/\[Project Name\]/$NAME/" "$TARGET/CLAUDE.md" && rm -f "$TARGET/CLAUDE.md.bak"
+
+# Initialize git
+cd "$TARGET"
+git init -q
+git add .
+git commit -q -m "feat: scaffold $NAME from agentic-workstation template"
+
+echo ""
+echo "Project created: $TARGET"
+echo ""
+echo "Next steps:"
+echo "  cd $TARGET"
+echo "  # Edit CLAUDE.md with your project details"
+echo "  # Edit docs/architecture.md, conventions.md, priorities.md"
+echo "  # Configure verify_fast.sh and verify.sh for your toolchain"
+echo "  # Start coding with: claude"

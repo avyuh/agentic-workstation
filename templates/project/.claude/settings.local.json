@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "command": "./scripts/verify_fast.sh"
+      }
+    ]
+  }
+}

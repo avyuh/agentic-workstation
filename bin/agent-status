@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# List all agent tmux sessions with their status.
+# Usage: agent-status
+
+LOGS_DIR="${HOME}/.agent-logs"
+
+# Get all agent sessions
+SESSIONS=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^agent-" || true)
+
+if [ -z "$SESSIONS" ]; then
+    echo "No agent sessions running."
+    echo ""
+    echo "Start one with: agent-run <project> \"<prompt>\""
+    exit 0
+fi
+
+echo "Agent Sessions:"
+echo "───────────────────────────────────────────────────────"
+printf "%-25s %-10s %s\n" "SESSION" "STATUS" "LAST OUTPUT"
+echo "───────────────────────────────────────────────────────"
+
+while IFS= read -r session; do
+    name="${session#agent-}"
+
+    # Check if claude process is still running in the session
+    pane_pid=$(tmux list-panes -t "$session" -F "#{pane_pid}" 2>/dev/null | head -1)
+
+    if [ -n "$pane_pid" ]; then
+        # Check if claude is in the process tree
+        if pgrep -P "$pane_pid" -f "claude" >/dev/null 2>&1; then
+            status="RUNNING"
+        else
+            # Check last line of most recent log
+            latest_log=$(ls -t "$LOGS_DIR/${name}"-*.log 2>/dev/null | head -1)
+            if [ -n "$latest_log" ] && grep -q "AGENT FINISHED" "$latest_log" 2>/dev/null; then
+                if grep -q "exit: 0" "$latest_log" 2>/dev/null; then
+                    status="DONE"
+                else
+                    status="ERROR"
+                fi
+            else
+                status="IDLE"
+            fi
+        fi
+    else
+        status="UNKNOWN"
+    fi
+
+    # Get last meaningful line from log
+    latest_log=$(ls -t "$LOGS_DIR/${name}"-*.log 2>/dev/null | head -1)
+    if [ -n "$latest_log" ]; then
+        last_line=$(tail -5 "$latest_log" 2>/dev/null | grep -v "^$" | tail -1 | cut -c1-50)
+    else
+        last_line="(no log)"
+    fi
+
+    printf "%-25s %-10s %s\n" "$name" "$status" "$last_line"
+done <<< "$SESSIONS"
+
+echo "───────────────────────────────────────────────────────"

@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Tail the output of an agent session.
+# Usage: agent-log <session-name> [lines]
+
+LOGS_DIR="${HOME}/.agent-logs"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-log <session-name> [lines]"
+    echo "  Tails the most recent log for the given session."
+    echo "  Default: last 50 lines. Use -f to follow."
+    exit 1
+fi
+
+SESSION="$1"
+LINES="${2:-50}"
+
+# Find most recent log
+LATEST_LOG=$(ls -t "$LOGS_DIR/${SESSION}"-*.log 2>/dev/null | head -1)
+
+if [ -z "$LATEST_LOG" ]; then
+    echo "No logs found for session: $SESSION"
+    echo ""
+    echo "Available logs:"
+    ls "$LOGS_DIR"/*.log 2>/dev/null | while read -r f; do
+        basename "$f" .log
+    done
+    exit 1
+fi
+
+echo "Log: $LATEST_LOG"
+echo "───────────────────────────────────────────────────────"
+
+if [ "$LINES" = "-f" ]; then
+    tail -f "$LATEST_LOG"
+else
+    tail -n "$LINES" "$LATEST_LOG"
+fi

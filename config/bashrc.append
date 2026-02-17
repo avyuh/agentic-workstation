@@ -1,0 +1,31 @@
+# --- agentic-workstation ---
+# Appended by bootstrap.sh. Do not edit between markers.
+
+# Agentic workstation bin
+export PATH="$HOME/bin:$PATH"
+
+# nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Load environment (API keys)
+[ -f "$HOME/.env" ] && set -a && . "$HOME/.env" && set +a
+
+# Aliases
+alias ll='ls -alF'
+alias gs='git status'
+alias gd='git diff'
+alias gl='git log --oneline -20'
+alias gw='git worktree list'
+
+# bat (Ubuntu names it batcat)
+if command -v batcat &>/dev/null && ! command -v bat &>/dev/null; then
+    alias bat='batcat'
+fi
+
+# Agent shortcuts
+alias as='agent-status'
+alias al='agent-log'
+
+# --- end agentic-workstation ---

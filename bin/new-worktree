@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euo pipefail
+
+# Create a git worktree for a feature branch + dedicated tmux session.
+# Usage: new-worktree <project> <branch>
+
+PROJECTS_DIR="${HOME}/projects"
+WORKTREES_DIR="${HOME}/worktrees"
+
+if [ $# -lt 2 ]; then
+    echo "Usage: new-worktree <project> <branch>"
+    echo "  Creates a worktree at ~/worktrees/<project>-<branch>"
+    echo "  and a tmux session named <project>-<branch>"
+    exit 1
+fi
+
+PROJECT="$1"
+BRANCH="$2"
+PROJECT_DIR="$PROJECTS_DIR/$PROJECT"
+
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "Error: Project not found at $PROJECT_DIR"
+    exit 1
+fi
+
+# Sanitize branch name for tmux session (replace . / : with -)
+SAFE_BRANCH=$(echo "$BRANCH" | tr './:' '---')
+WORKTREE_NAME="${PROJECT}-${SAFE_BRANCH}"
+WORKTREE_DIR="$WORKTREES_DIR/$WORKTREE_NAME"
+
+if [ -d "$WORKTREE_DIR" ]; then
+    echo "Error: Worktree already exists at $WORKTREE_DIR"
+    echo "  To use it: tmux attach -t $WORKTREE_NAME"
+    exit 1
+fi
+
+echo "Creating worktree: $WORKTREE_DIR"
+echo "Branch: $BRANCH"
+
+# Create worktrees directory
+mkdir -p "$WORKTREES_DIR"
+
+# Create the worktree
+cd "$PROJECT_DIR"
+git worktree add "$WORKTREE_DIR" -b "$BRANCH" 2>/dev/null || \
+    git worktree add "$WORKTREE_DIR" "$BRANCH"
+
+# Create a tmux session for this worktree
+if tmux has-session -t "$WORKTREE_NAME" 2>/dev/null; then
+    echo "tmux session '$WORKTREE_NAME' already exists"
+else
+    tmux new-session -d -s "$WORKTREE_NAME" -c "$WORKTREE_DIR"
+    echo "tmux session created: $WORKTREE_NAME"
+fi
+
+echo ""
+echo "Worktree ready: $WORKTREE_DIR"
+echo ""
+echo "To attach: tmux attach -t $WORKTREE_NAME"
+echo "To start agent: agent-run $WORKTREE_NAME \"your prompt here\""
+echo "To list worktrees: git -C $PROJECT_DIR worktree list"

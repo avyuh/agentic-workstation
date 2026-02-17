@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+
+# Clone a GitHub repo and add agent infrastructure (non-destructive).
+# Only adds files that don't already exist — won't overwrite your CLAUDE.md.
+# Usage: clone-project <url> [directory]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")/templates/project"
+PROJECTS_DIR="${HOME}/projects"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: clone-project <url> [directory]"
+    echo "  Clones repo into ~/projects/<name> and adds agent infra"
+    exit 1
+fi
+
+URL="$1"
+# Extract repo name from URL
+REPO_NAME=$(basename "$URL" .git)
+TARGET="${2:-$PROJECTS_DIR/$REPO_NAME}"
+
+if [ -d "$TARGET" ]; then
+    echo "Error: $TARGET already exists"
+    exit 1
+fi
+
+echo "Cloning: $URL"
+echo "Location: $TARGET"
+
+# Clone
+git clone "$URL" "$TARGET"
+cd "$TARGET"
+
+# Add agent infra — only files that don't exist
+copy_if_missing() {
+    local src="$1"
+    local dest="$2"
+    if [ ! -f "$dest" ]; then
+        mkdir -p "$(dirname "$dest")"
+        cp "$src" "$dest"
+        echo "  Added: $dest"
+    else
+        echo "  Exists (skipped): $dest"
+    fi
+}
+
+echo ""
+echo "Adding agent infrastructure:"
+
+copy_if_missing "$TEMPLATE_DIR/CLAUDE.md" "$TARGET/CLAUDE.md"
+copy_if_missing "$TEMPLATE_DIR/scripts/verify_fast.sh" "$TARGET/scripts/verify_fast.sh"
+copy_if_missing "$TEMPLATE_DIR/scripts/verify.sh" "$TARGET/scripts/verify.sh"
+copy_if_missing "$TEMPLATE_DIR/docs/architecture.md" "$TARGET/docs/architecture.md"
+copy_if_missing "$TEMPLATE_DIR/docs/conventions.md" "$TARGET/docs/conventions.md"
+copy_if_missing "$TEMPLATE_DIR/docs/priorities.md" "$TARGET/docs/priorities.md"
+
+# Create .claude directory and settings if missing
+if [ ! -f "$TARGET/.claude/settings.local.json" ]; then
+    mkdir -p "$TARGET/.claude"
+    cp "$TEMPLATE_DIR/.claude/settings.local.json" "$TARGET/.claude/settings.local.json"
+    echo "  Added: .claude/settings.local.json"
+else
+    echo "  Exists (skipped): .claude/settings.local.json"
+fi
+
+# Create decisions directory if missing
+mkdir -p "$TARGET/docs/decisions"
+
+# Make scripts executable
+[ -f "$TARGET/scripts/verify_fast.sh" ] && chmod +x "$TARGET/scripts/verify_fast.sh"
+[ -f "$TARGET/scripts/verify.sh" ] && chmod +x "$TARGET/scripts/verify.sh"
+
+# Replace placeholder in CLAUDE.md if we just created it
+if grep -q "\[Project Name\]" "$TARGET/CLAUDE.md" 2>/dev/null; then
+    sed -i.bak "s/\[Project Name\]/$REPO_NAME/" "$TARGET/CLAUDE.md" && rm -f "$TARGET/CLAUDE.md.bak"
+fi
+
+echo ""
+echo "Project cloned: $TARGET"
+echo ""
+echo "Next steps:"
+echo "  cd $TARGET"
+echo "  # Review and customize CLAUDE.md"
+echo "  # Configure verify_fast.sh and verify.sh for this project's toolchain"
+echo "  # Start coding with: claude"

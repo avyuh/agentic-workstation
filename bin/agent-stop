@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Gracefully stop an agent session (Ctrl+C, then kill if needed).
+# Usage: agent-stop <session-name>
+
+if [ $# -lt 1 ]; then
+    echo "Usage: agent-stop <session-name>"
+    exit 1
+fi
+
+SESSION="$1"
+TMUX_SESSION="agent-$SESSION"
+
+if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "No session found: $TMUX_SESSION"
+    exit 1
+fi
+
+echo "Stopping agent: $SESSION"
+
+# Send Ctrl+C for graceful shutdown
+tmux send-keys -t "$TMUX_SESSION" C-c
+echo "  Sent Ctrl+C, waiting 5s..."
+sleep 5
+
+# Check if claude is still running
+pane_pid=$(tmux list-panes -t "$TMUX_SESSION" -F "#{pane_pid}" 2>/dev/null | head -1)
+if [ -n "$pane_pid" ] && pgrep -P "$pane_pid" -f "claude" >/dev/null 2>&1; then
+    echo "  Still running. Sending SIGTERM..."
+    pkill -TERM -P "$pane_pid" -f "claude" 2>/dev/null || true
+    sleep 2
+fi
+
+# Check once more
+if [ -n "$pane_pid" ] && pgrep -P "$pane_pid" -f "claude" >/dev/null 2>&1; then
+    echo "  Still running. Sending SIGKILL..."
+    pkill -KILL -P "$pane_pid" -f "claude" 2>/dev/null || true
+fi
+
+echo "Agent stopped: $SESSION"
+echo ""
+echo "Session still exists. To clean up: tmux kill-session -t $TMUX_SESSION"
+echo "To see what it did: agent-log $SESSION"
