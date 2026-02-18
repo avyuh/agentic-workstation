@@ -54,9 +54,9 @@ fi
 # Create tmux session and run claude headless
 tmux new-session -d -s "agent-$SESSION" -c "$WORK_DIR"
 
-# Source env and run claude with prompt, logging output
+# Source env and nvm, run claude headless with tool permissions
 tmux send-keys -t "agent-$SESSION" \
-    "[ -f \"\$HOME/.env\" ] && set -a && . \"\$HOME/.env\" && set +a; claude -p \"\$(cat $PROMPT_FILE)\" 2>&1 | tee $LOG_FILE; echo \"=== AGENT FINISHED (exit: \$?) ===\"; rm -f $PROMPT_FILE" Enter
+    "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"; [ -f \"\$HOME/.env\" ] && set -a && . \"\$HOME/.env\" && set +a; claude -p \"\$(cat $PROMPT_FILE)\" --allowedTools 'Bash(npm:*) Bash(npx:*) Bash(node:*) Bash(git:*) Bash(mkdir:*) Bash(chmod:*) Bash(cat:*) Bash(ls:*) Read Write Edit Glob Grep' 2>&1 | tee $LOG_FILE; echo \"=== AGENT FINISHED (exit: \$?) ===\"; rm -f $PROMPT_FILE" Enter
 
 echo "Agent started: agent-$SESSION"
 echo "Working dir:   $WORK_DIR"
