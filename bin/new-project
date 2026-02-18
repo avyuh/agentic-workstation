@@ -4,8 +4,7 @@ set -euo pipefail
 # Scaffold a new project from the agentic-workstation template.
 # Usage: new-project <name> [directory]
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TEMPLATE_DIR="$(dirname "$SCRIPT_DIR")/templates/project"
+TEMPLATE_DIR="${HOME}/.agentic-workstation/templates/project"
 PROJECTS_DIR="${HOME}/projects"
 
 if [ $# -lt 1 ]; then

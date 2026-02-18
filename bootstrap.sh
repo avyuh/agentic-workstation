@@ -225,6 +225,11 @@ mkdir -p "$HOME/.claude/skills"
 cp "$REPO_DIR/skills/"*.md "$HOME/.claude/skills/"
 log "Installed skills to ~/.claude/skills/"
 
+# Templates (used by new-project, clone-project)
+mkdir -p "$HOME/.agentic-workstation"
+cp -r "$REPO_DIR/templates" "$HOME/.agentic-workstation/"
+log "Installed templates to ~/.agentic-workstation/templates/"
+
 # Bin scripts
 cp "$REPO_DIR/bin/"* "$HOME/bin/"
 chmod +x "$HOME/bin/"*
