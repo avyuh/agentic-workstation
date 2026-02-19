@@ -1,8 +1,7 @@
 import "dotenv/config";
 import { Bot } from "grammy";
-import { registerCommands } from "./commands";
-import { routeMessage } from "./router";
 import { startWatcher } from "./watcher";
+import { sh, truncate } from "./shell";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ALLOWED_USER_ID = process.env.ALLOWED_USER_ID;
@@ -12,7 +11,7 @@ if (!ALLOWED_USER_ID) throw new Error("ALLOWED_USER_ID is not set");
 
 const bot = new Bot(BOT_TOKEN);
 
-// Auth middleware — reject anyone who isn't the owner
+// Auth middleware
 bot.use(async (ctx, next) => {
   if (String(ctx.from?.id) !== ALLOWED_USER_ID) {
     await ctx.reply("Me not that kind of orc!");
@@ -21,14 +20,33 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
-// Slash commands (shortcuts)
-registerCommands(bot);
+// Every text message = shell command on VPS
+bot.on("message:text", async (ctx) => {
+  const cmd = ctx.message.text.trim();
+  if (!cmd) return;
 
-// Freeform text — the main interface
-bot.on("message:text", routeMessage);
+  try {
+    const output = await sh(cmd, 60_000);
+    if (output) {
+      await ctx.reply(`<pre>${escapeHtml(truncate(output))}</pre>`, { parse_mode: "HTML" });
+    } else {
+      await ctx.reply("(no output)");
+    }
+  } catch (err: any) {
+    const msg = (err.stderr || err.stdout || err.message || "").trim();
+    if (msg) {
+      await ctx.reply(`<pre>${escapeHtml(truncate(msg))}</pre>`, { parse_mode: "HTML" });
+    } else {
+      await ctx.reply(`Exit code: ${err.code || "unknown"}`);
+    }
+  }
+});
 
-// Watch agent logs for completions/errors and push notifications
 startWatcher(bot, Number(ALLOWED_USER_ID));
 
 bot.start();
 console.log("Peon ready. Something need doing?");
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
