@@ -1,12 +1,12 @@
 {
-  "name": "telegram-bot",
+  "name": "peon",
   "version": "0.1.0",
   "description": "Telegram bot for agentic workstation management",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node --watch src/index.ts"
+    "dev": "npx tsx --watch src/index.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }
 }
