@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Bot } from "grammy";
 import { registerCommands } from "./commands";
+import { routeMessage } from "./router";
 import { startWatcher } from "./watcher";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -20,12 +21,11 @@ bot.use(async (ctx, next) => {
   await next();
 });
 
+// Slash commands (shortcuts)
 registerCommands(bot);
 
-// Catch-all for non-command messages
-bot.on("message:text", async (ctx) => {
-  await ctx.reply("Me not understand. Try /help");
-});
+// Freeform text — the main interface
+bot.on("message:text", routeMessage);
 
 // Watch agent logs for completions/errors and push notifications
 startWatcher(bot, Number(ALLOWED_USER_ID));
