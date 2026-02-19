@@ -22,6 +22,11 @@ bot.use(async (ctx, next) => {
 
 registerCommands(bot);
 
+// Catch-all for non-command messages
+bot.on("message:text", async (ctx) => {
+  await ctx.reply("Me not understand. Try /help");
+});
+
 // Watch agent logs for completions/errors and push notifications
 startWatcher(bot, Number(ALLOWED_USER_ID));
 
