@@ -4,6 +4,8 @@ import { promisify } from "util";
 const execAsync = promisify(exec);
 const BIN = `${process.env.HOME}/bin`;
 const NVM = `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`;
+const SESSION_DIR = `${process.env.HOME}/peon-session`;
+const ALLOWED_TOOLS = `'Bash(npm:*) Bash(npx:*) Bash(node:*) Bash(git:*) Bash(mkdir:*) Bash(chmod:*) Bash(cat:*) Bash(ls:*) Read Write Edit Glob Grep'`;
 
 export const MAX_MSG = 4000;
 
@@ -26,10 +28,15 @@ export async function sh(cmd: string, timeout = 30_000): Promise<string> {
   return (stdout + stderr).trim();
 }
 
-/** Run claude -p with a prompt */
-export async function claude(prompt: string, timeout = 120_000): Promise<string> {
+/** Run claude -p with a prompt. Uses --continue to maintain conversation. */
+export async function claude(
+  prompt: string,
+  cont: boolean,
+  timeout = 120_000
+): Promise<string> {
   const escaped = prompt.replace(/'/g, "'\\''");
-  const cmd = `${NVM} && claude -p '${escaped}' --allowedTools 'Bash(npm:*) Bash(npx:*) Bash(node:*) Bash(git:*) Bash(mkdir:*) Bash(chmod:*) Bash(cat:*) Bash(ls:*) Read Write Edit Glob Grep'`;
+  const continueFlag = cont ? "--continue" : "";
+  const cmd = `${NVM} && mkdir -p '${SESSION_DIR}' && cd '${SESSION_DIR}' && claude -p '${escaped}' ${continueFlag} --allowedTools ${ALLOWED_TOOLS}`;
   const { stdout } = await execAsync(cmd, {
     timeout,
     shell: "/bin/bash",

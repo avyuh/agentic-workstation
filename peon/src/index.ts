@@ -11,6 +11,27 @@ if (!ALLOWED_USER_ID) throw new Error("ALLOWED_USER_ID is not set");
 
 const bot = new Bot(BOT_TOKEN);
 
+// Session state
+let hasConversation = false;
+
+// Simple queue so messages are processed one at a time
+let busy = false;
+const queue: (() => void)[] = [];
+
+function enqueue(): Promise<void> {
+  if (!busy) {
+    busy = true;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => queue.push(resolve));
+}
+
+function dequeue(): void {
+  const next = queue.shift();
+  if (next) next();
+  else busy = false;
+}
+
 // Auth middleware
 bot.use(async (ctx, next) => {
   if (String(ctx.from?.id) !== ALLOWED_USER_ID) {
@@ -18,6 +39,12 @@ bot.use(async (ctx, next) => {
     return;
   }
   await next();
+});
+
+// /new — start a fresh conversation
+bot.command("new", async (ctx) => {
+  hasConversation = false;
+  await ctx.reply("New conversation. What you want?");
 });
 
 // /sh <cmd> — direct shell execution
@@ -52,31 +79,39 @@ bot.command("stats", async (ctx) => {
   }
 });
 
-// Default: every text message → claude -p
+// Default: every text message → claude -p (with --continue for persistence)
 bot.on("message:text", async (ctx) => {
   const prompt = ctx.message.text.trim();
   if (!prompt) return;
 
-  await ctx.reply("Work, work...");
+  await enqueue();
 
   try {
-    const output = await claude(prompt);
+    await ctx.reply("Work, work...");
+
+    const output = await claude(prompt, hasConversation);
+    hasConversation = true;
+
     if (!output) {
       await ctx.reply("(no response)");
       return;
     }
-    // Split long responses into chunks for Telegram's 4096 char limit
+
     const chunks = splitMessage(output, 4000);
     for (const chunk of chunks) {
       await ctx.reply(chunk);
     }
   } catch (err: any) {
     if (err.killed || err.signal === "SIGTERM") {
-      await ctx.reply("Timed out (2 min). For long tasks, use:\n/sh agent-run <project> \"<task>\"");
+      await ctx.reply(
+        "Timed out (2 min). For long tasks, use:\n/sh agent-run <project> \"<task>\""
+      );
     } else {
       const msg = (err.stderr || err.message || "").trim();
       await ctx.reply(`Error:\n${truncate(msg)}`);
     }
+  } finally {
+    dequeue();
   }
 });
 
@@ -90,7 +125,6 @@ function splitMessage(text: string, maxLen: number): string[] {
   const chunks: string[] = [];
   let remaining = text;
   while (remaining.length > 0) {
-    // Try to split at a newline near the limit
     let splitAt = remaining.lastIndexOf("\n", maxLen);
     if (splitAt <= 0) splitAt = maxLen;
     chunks.push(remaining.slice(0, splitAt));
