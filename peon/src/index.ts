@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Bot } from "grammy";
-import { startWatcher } from "./watcher";
-import { sh, claude, truncate, escapeHtml } from "./shell";
+import { sh } from "./shell";
+import { logger, genTraceId, truncate, escapeHtml } from "./logger";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ALLOWED_USER_ID = process.env.ALLOWED_USER_ID;
@@ -11,132 +11,136 @@ if (!ALLOWED_USER_ID) throw new Error("ALLOWED_USER_ID is not set");
 
 const bot = new Bot(BOT_TOKEN);
 
-// Session state
-let hasConversation = false;
-
-// Simple queue so messages are processed one at a time
-let busy = false;
-const queue: (() => void)[] = [];
-
-function enqueue(): Promise<void> {
-  if (!busy) {
-    busy = true;
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => queue.push(resolve));
-}
-
-function dequeue(): void {
-  const next = queue.shift();
-  if (next) next();
-  else busy = false;
-}
-
-// Auth middleware
+// --- Auth middleware ---
 bot.use(async (ctx, next) => {
   if (String(ctx.from?.id) !== ALLOWED_USER_ID) {
+    const traceId = genTraceId();
+    logger.log({
+      ts: new Date().toISOString(),
+      trace_id: traceId,
+      event: "input",
+      command: null,
+      user_id: ctx.from?.id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+      msg_id: ctx.message?.message_id ?? null,
+      text: ctx.message?.text ?? "",
+      latency_ms: null,
+      ok: true,
+    });
     await ctx.reply("Me not that kind of orc!");
+    logger.log({
+      ts: new Date().toISOString(),
+      trace_id: traceId,
+      event: "output",
+      command: null,
+      user_id: ctx.from?.id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+      msg_id: ctx.message?.message_id ?? null,
+      text: "Me not that kind of orc!",
+      latency_ms: null,
+      ok: true,
+    });
     return;
   }
   await next();
 });
 
-// /new — start a fresh conversation
-bot.command("new", async (ctx) => {
-  hasConversation = false;
-  await ctx.reply("New conversation. What you want?");
+// --- Logging middleware ---
+bot.use(async (ctx, next) => {
+  const traceId = genTraceId();
+  const start = Date.now();
+  const text = ctx.message?.text ?? "";
+  const command = text.startsWith("/") ? text.split(/\s/)[0] : null;
+
+  // Log input immediately
+  logger.log({
+    ts: new Date().toISOString(),
+    trace_id: traceId,
+    event: "input",
+    command,
+    user_id: ctx.from?.id ?? null,
+    chat_id: ctx.chat?.id ?? null,
+    msg_id: ctx.message?.message_id ?? null,
+    text,
+    latency_ms: null,
+    ok: true,
+  });
+
+  // Wrap ctx.reply to auto-log outputs
+  const origReply = ctx.reply.bind(ctx);
+  ctx.reply = async (replyText: string, other?: any) => {
+    const result = await origReply(replyText, other);
+    logger.log({
+      ts: new Date().toISOString(),
+      trace_id: traceId,
+      event: "output",
+      command,
+      user_id: ctx.from?.id ?? null,
+      chat_id: ctx.chat?.id ?? null,
+      msg_id: ctx.message?.message_id ?? null,
+      text: typeof replyText === "string" ? replyText.slice(0, 500) : "",
+      latency_ms: Date.now() - start,
+      ok: true,
+    });
+    return result;
+  };
+
+  // Stash trace_id on ctx for error handler
+  (ctx as any).traceId = traceId;
+  (ctx as any).traceStart = start;
+  (ctx as any).traceCommand = command;
+
+  await next();
 });
 
-// /sh <cmd> — direct shell execution
-bot.command("sh", async (ctx) => {
-  const cmd = ctx.match?.trim();
-  if (!cmd) {
-    await ctx.reply("Usage: /sh <command>");
-    return;
-  }
-  try {
-    const output = await sh(cmd, 60_000);
-    await ctx.reply(`<pre>${escapeHtml(truncate(output || "(no output)"))}</pre>`, {
-      parse_mode: "HTML",
-    });
-  } catch (err: any) {
-    const msg = (err.stderr || err.stdout || err.message || "").trim();
-    await ctx.reply(`<pre>${escapeHtml(truncate(msg || `Exit code: ${err.code}`))}</pre>`, {
-      parse_mode: "HTML",
-    });
-  }
-});
+// --- /stats command ---
+const STATS_CMD = [
+  'printf "CPU  %s cores  load %s\\n" "$(nproc)" "$(cut -d" " -f1 /proc/loadavg)"',
+  'free -m | awk \'NR==2{printf "MEM  %dM / %dM (%d%%)\\n", $3, $2, $3*100/$2}\'',
+  'free -m | awk \'NR==3{if($3>0) printf "SWAP %dM / %dM\\n", $3, $2}\'',
+  'df -h / | awk \'NR==2{printf "DISK %s / %s (%s)\\n", $3, $2, $5}\'',
+  'uptime -p | sed "s/up /UP   /"',
+].join(" && ");
 
-// /stats — CPU, RAM, disk
 bot.command("stats", async (ctx) => {
   try {
-    const output = await sh(
-      'echo "=== CPU ===" && top -bn1 | head -5 && echo "" && echo "=== MEMORY ===" && free -h && echo "" && echo "=== DISK ===" && df -h / && echo "" && echo "=== UPTIME ===" && uptime'
-    );
-    await ctx.reply(`<pre>${escapeHtml(truncate(output))}</pre>`, { parse_mode: "HTML" });
+    const output = await sh(STATS_CMD);
+    await ctx.reply(`<pre>${escapeHtml(output)}</pre>`, { parse_mode: "HTML" });
   } catch (err: any) {
     await ctx.reply(`Error: ${err.message}`);
   }
 });
 
-// Default: every text message → claude -p (with --continue for persistence)
+// --- Catch-all: any text message → "Work Work!" ---
 bot.on("message:text", async (ctx) => {
-  const prompt = ctx.message.text.trim();
-  if (!prompt) return;
-
-  await enqueue();
-
-  try {
-    await ctx.reply("Work, work...");
-
-    const output = await claude(prompt, hasConversation);
-    hasConversation = true;
-
-    if (!output) {
-      await ctx.reply("(no response)");
-      return;
-    }
-
-    const chunks = splitMessage(output, 4000);
-    for (const chunk of chunks) {
-      await ctx.reply(chunk);
-    }
-  } catch (err: any) {
-    if (err.killed || err.signal === "SIGTERM") {
-      await ctx.reply(
-        "Timed out (2 min). For long tasks, use:\n/sh agent-run <project> \"<task>\""
-      );
-    } else {
-      const msg = (err.stderr || err.message || "").trim();
-      await ctx.reply(`Error:\n${truncate(msg)}`);
-    }
-  } finally {
-    dequeue();
-  }
+  await ctx.reply("Work Work!");
 });
 
-// Error handler — log everything
+// --- Error handler ---
 bot.catch((err) => {
-  console.error("Bot error:", err);
+  const ctx = err.ctx as any;
+  const traceId = ctx?.traceId || "unknown";
+  const start = ctx?.traceStart;
+  const command = ctx?.traceCommand || null;
+
+  logger.log({
+    ts: new Date().toISOString(),
+    trace_id: traceId,
+    event: "error",
+    command,
+    user_id: ctx?.from?.id ?? null,
+    chat_id: ctx?.chat?.id ?? null,
+    msg_id: ctx?.message?.message_id ?? null,
+    text: String(err.error),
+    latency_ms: start ? Date.now() - start : null,
+    ok: false,
+  });
+
+  console.error(`[ERROR] ${traceId}:`, err.error);
 });
 
-startWatcher(bot, Number(ALLOWED_USER_ID));
-
+// --- Start ---
 bot.start({
-  onStart: () => console.log("Polling started."),
+  onStart: () => console.log("Peon ready. Something need doing?"),
   allowed_updates: ["message"],
 });
-console.log("Peon ready. Something need doing?");
-
-function splitMessage(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    let splitAt = remaining.lastIndexOf("\n", maxLen);
-    if (splitAt <= 0) splitAt = maxLen;
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt).trimStart();
-  }
-  return chunks;
-}
