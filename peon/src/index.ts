@@ -115,9 +115,17 @@ bot.on("message:text", async (ctx) => {
   }
 });
 
+// Error handler — log everything
+bot.catch((err) => {
+  console.error("Bot error:", err);
+});
+
 startWatcher(bot, Number(ALLOWED_USER_ID));
 
-bot.start();
+bot.start({
+  onStart: () => console.log("Polling started."),
+  allowed_updates: ["message"],
+});
 console.log("Peon ready. Something need doing?");
 
 function splitMessage(text: string, maxLen: number): string[] {
