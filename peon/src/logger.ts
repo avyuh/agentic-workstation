@@ -33,6 +33,7 @@ export interface LogEntry {
   text: string;
   latency_ms: number | null;
   ok: boolean;
+  workspace: string | null;
 }
 
 class Logger {
@@ -50,11 +51,12 @@ class Logger {
     // Human-readable one-liner to stdout
     const time = new Date(entry.ts).toLocaleTimeString("en-GB", { hour12: false });
     const tag = entry.event === "input" ? "IN " : entry.event === "output" ? "OUT" : "ERR";
+    const ws = entry.workspace || "-";
     const tid = entry.trace_id;
     const text = (entry.text || "").slice(0, 80).replace(/\n/g, " ");
     const suffix = entry.latency_ms != null ? ` (${entry.latency_ms}ms)` : "";
 
-    console.log(`[${time}] ${tag} ${tid} ${text}${suffix}`);
+    console.log(`[${time}] ${tag} ${ws} ${tid} ${text}${suffix}`);
   }
 }
 

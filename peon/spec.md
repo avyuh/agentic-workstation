@@ -8,7 +8,7 @@ Telegram bot for managing agents on the agentic workstation.
 
 | Layer | What it adds | Status |
 |-------|-------------|--------|
-| v1 — Logging Foundation | Echo "Work Work!", `/stats`, JSONL logging with trace IDs, console one-liners | **current** |
+| v1 — Logging Foundation | Echo "Work Work!", `/stats`, workspaces, JSONL logging with trace IDs, console one-liners | **current** |
 | v2 — Agent Management | `/run`, `/status`, `/stop`, `/log`, `/diff` via tmux sessions | planned |
 | v3 — Watcher | Proactive notifications when agents finish or error | planned |
 | v4 — Conversation | Forward free-text to `claude -p`, message queue, `/new` | planned |
@@ -17,7 +17,18 @@ Telegram bot for managing agents on the agentic workstation.
 
 ### Commands
 - `/stats` — CPU, memory, disk, uptime (formatted for Telegram)
+- `/ws:new <name>` — Create workspace (`~/ws/<name>/`), switch to it
+- `/ws:ls` — List workspaces, mark current with `>>`
+- `/ws:cd <name>` — Switch to existing workspace. No arg = unset.
 - Any other text → replies "Work Work!"
+
+### Workspaces
+- A workspace is a directory under `~/ws/` on the VPS
+- Single in-memory variable (`currentWs`) — not persisted across restarts
+- Every reply is prefixed with `[workspace]` when a workspace is active
+- On `/ws:cd` or `/ws:new`, bot pins a status message with the current workspace
+- Workspace names: alphanumeric, dash, underscore only
+- Log entries include `workspace` field
 
 ### Auth
 - Single allowed user ID from `ALLOWED_USER_ID` env var
@@ -42,7 +53,8 @@ Telegram bot for managing agents on the agentic workstation.
   "msg_id": 42,
   "text": "hello",
   "latency_ms": null,
-  "ok": true
+  "ok": true,
+  "workspace": "myproject"
 }
 ```
 
