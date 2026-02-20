@@ -2,6 +2,7 @@ import "dotenv/config";
 import { Bot } from "grammy";
 import { sh } from "./shell";
 import { logger, genTraceId, truncate, escapeHtml } from "./logger";
+import { WorkspaceStore, contextKey } from "./workspace-store";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -15,9 +16,14 @@ const WS_ROOT = path.join(process.env.HOME || "/root", "ws");
 
 const bot = new Bot(BOT_TOKEN);
 
-// --- Workspace state ---
-let currentWs: string | null = null;
-let pinnedMsgId: number | null = null;
+// --- Workspace state (per-context, persisted) ---
+const wsStore = new WorkspaceStore();
+
+// --- Service message guard (ignore pins, photos, etc.) ---
+bot.use(async (ctx, next) => {
+  if (!ctx.message?.text) return;
+  await next();
+});
 
 // --- Auth middleware ---
 bot.use(async (ctx, next) => {
@@ -74,13 +80,19 @@ bot.use(async (ctx, next) => {
     text,
     latency_ms: null,
     ok: true,
-    workspace: currentWs,
+    workspace: wsStore.get(contextKey(ctx)),
   });
 
   // Wrap ctx.reply to auto-log outputs and prepend workspace prefix
   const origReply = ctx.reply.bind(ctx);
   ctx.reply = async (replyText: string, other?: any) => {
-    const prefixed = currentWs ? `[${currentWs}] ${replyText}` : replyText;
+    let prefixed = replyText;
+    const ws = wsStore.get(contextKey(ctx));
+    if (ws) {
+      prefixed = other?.parse_mode === "HTML"
+        ? `<b>[${escapeHtml(ws)}]</b>\n${replyText}`
+        : `[${ws}] ${replyText}`;
+    }
     const result = await origReply(prefixed, other);
     logger.log({
       ts: new Date().toISOString(),
@@ -93,7 +105,7 @@ bot.use(async (ctx, next) => {
       text: typeof replyText === "string" ? replyText.slice(0, 500) : "",
       latency_ms: Date.now() - start,
       ok: true,
-      workspace: currentWs,
+      workspace: wsStore.get(contextKey(ctx)),
     });
     return result;
   };
@@ -128,35 +140,6 @@ function listWorkspaces(): string[] {
   }
 }
 
-async function updatePinnedStatus(ctx: any): Promise<void> {
-  const chatId = ctx.chat?.id;
-  if (!chatId) return;
-
-  // Unpin previous status message
-  if (pinnedMsgId) {
-    try {
-      await ctx.api.unpinChatMessage(chatId, pinnedMsgId);
-    } catch {
-      // Ignore — message may have been deleted
-    }
-  }
-
-  const statusText = currentWs
-    ? `Workspace: ${currentWs}`
-    : "No workspace";
-
-  const msg = await ctx.api.sendMessage(chatId, statusText);
-  try {
-    await ctx.api.pinChatMessage(chatId, msg.message_id, {
-      disable_notification: true,
-    });
-    pinnedMsgId = msg.message_id;
-  } catch {
-    // Pin may fail in private chats without admin rights — that's ok
-    pinnedMsgId = null;
-  }
-}
-
 // --- Workspace name validation ---
 const WS_NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
@@ -170,14 +153,13 @@ bot.hears(/^\/ws:new\s+(.+)/, async (ctx) => {
   }
 
   if (wsExists(name)) {
-    currentWs = name;
+    wsStore.set(contextKey(ctx), name);
     await ctx.reply("Already exists, switched.");
     return;
   }
 
   fs.mkdirSync(path.join(WS_ROOT, name), { recursive: true });
-  currentWs = name;
-  await updatePinnedStatus(ctx);
+  wsStore.set(contextKey(ctx), name);
   await ctx.reply("Workspace created.");
 });
 
@@ -190,7 +172,8 @@ bot.hears(/^\/ws:ls$/, async (ctx) => {
     return;
   }
 
-  const lines = dirs.map((d) => (d === currentWs ? `>> ${d}` : `   ${d}`));
+  const myWs = wsStore.get(contextKey(ctx));
+  const lines = dirs.map((d) => (d === myWs ? `>> ${d}` : `   ${d}`));
   await ctx.reply(`<pre>${escapeHtml(lines.join("\n"))}</pre>`, {
     parse_mode: "HTML",
   });
@@ -201,8 +184,7 @@ bot.hears(/^\/ws:cd(?:\s+(.+))?$/, async (ctx) => {
   const name = ctx.match[1]?.trim();
 
   if (!name) {
-    currentWs = null;
-    await updatePinnedStatus(ctx);
+    wsStore.delete(contextKey(ctx));
     await ctx.reply("Workspace unset.");
     return;
   }
@@ -214,8 +196,7 @@ bot.hears(/^\/ws:cd(?:\s+(.+))?$/, async (ctx) => {
     return;
   }
 
-  currentWs = name;
-  await updatePinnedStatus(ctx);
+  wsStore.set(contextKey(ctx), name);
   await ctx.reply("Switched.");
 });
 
@@ -260,7 +241,7 @@ bot.catch((err) => {
     text: String(err.error),
     latency_ms: start ? Date.now() - start : null,
     ok: false,
-    workspace: currentWs,
+    workspace: wsStore.get(contextKey(ctx)),
   });
 
   console.error(`[ERROR] ${traceId}:`, err.error);
